@@ -15,6 +15,7 @@ class gamepad_bp_shim():
     self.power_on = True
     self.device_file = InputDevice(file)
     print("opened device file", self.device_file.path)
+    self.bpdevice = None
     self.rumble_effect = 0
     self.ignored_events = 0
 
@@ -28,7 +29,7 @@ class gamepad_bp_shim():
         print("Got FF event!")
         print(event)
         #dump(event)
-        self.rumble_effect = 1
+        self.rumble_effect += 1
       elif event.type == ecodes.EV_FF_STATUS:
         print("FF status event")
       elif event.type in {ecodes.EV_KEY, ecodes.EV_MSC, ecodes.EV_ABS, ecodes.EV_SYN}:
@@ -42,14 +43,19 @@ class gamepad_bp_shim():
         #EV_MSC 4 buttons?
         #EV_SW  5
 
-  async def send_rumbles(self): # asyncronus control of force feed back effects
-    old_rumble_effect = self.rumble_effect
+  async def send_rumbles(self): # asyncronus control of force feedback effects
     while self.power_on:
-      if old_rumble_effect != self.rumble_effect:
-        # send to bp
-        old_rumble_effect = self.rumble_effect
-        print ("rumble effect changed to ", self.rumble_effect)
-      await asyncio.sleep(0.2)
+      if self.rumble_effect > 0:
+        if (self.bpdevice == None):
+          print("No buttplug device connected, skipping rumble")
+        else:
+          print(f"  vibraing {self.bpdevice.name}")
+          await self.bpdevice.actuators[0].command(0.2)
+          await asyncio.sleep(.2)
+          await self.bpdevice.actuators[0].command(0)
+        self.rumble_effect -= 1
+      else:
+        await asyncio.sleep(.2)
 
 if __name__ == "__main__":
   logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -81,7 +87,6 @@ if __name__ == "__main__":
         cpath_to_read_input.pop(path).cancel()
         cpath_to_send_output.pop(path).cancel()
         cpath_to_shim.pop(path)
-        cpath_to_bpdevice.pop(path, None) # remove if exists
 
       await asyncio.sleep(5) # loop for new controllers every 5 seconds
 
@@ -142,59 +147,69 @@ if __name__ == "__main__":
         print("shitting down")
         main_power_on = False
         break
-      if user_input == "h" or user_input == "help":
+      elif user_input == "h" or user_input == "help":
         print("""Buttplug Controller Shim BCS v0.1
-        
-        (h)elp, (q)uit, (p)air controller to buttplug
 
-        buttplug helper commands:
-        (bs)can for buttplugs, (bl)ist buttplugs, (bv)ibrate buttplug
+(h)elp, (q)uit, (p)air controller to buttplug
 
-        controller helper commands:
-        (cl)ist controllers, (cv)ibrate controller
-        """)
+buttplug helper commands:
+(bs)can for buttplugs, (bl)ist buttplugs, (bv)ibrate buttplug
+
+controller helper commands:
+(cl)ist controllers, (cv)ibrate controller
+""")
       elif user_input == "p" or user_input == "pair":
-        cid = await aioconsole.ainput("  controller index> ")
-        if (cid == "q" or bid == "quit"):
+        cid = await aioconsole.ainput("  controller event number> ")
+        if (cid in {"q", "quit", "c", "cancel"}):
           print("  cancelled pairing")
           continue
         bid = await aioconsole.ainput("  buttplug index> ")
         if (bid in {"q", "quit", "c", "cancel"}):
           print("  cancelled pairing")
           continue
-        if (cid > len(cpath_to_shim) or bid > len(cpath_to_bpdevice)):
-          print("  invalid index")
+        path = f"/dev/input/event{cid}"
+        if cpath_to_shim[path] == None:
+          print("  invalid controller event number")
           continue
+        if (int(bid) > len(bpclient.devices)):
+          print("  invalid buttplug index")
+          continue
+        print(f"  connecting controller {path} to buttplug {bid} - {bpclient.devices[int(bid)].name}")
+        cpath_to_shim[path].bpdevice = bpclient.devices[int(bid)]
+        # TODO vibrate controller and buttplug to indicate success
+
       elif user_input in {"s", "bs", "scan"}:
         #bp_scan = True
-        print("scanning for new buttplugs...")
+        print("  scanning for new buttplugs...")
         await bpclient.start_scanning()
         await asyncio.sleep(10)
         await bpclient.stop_scanning()
-        print("...done scanning for buttplugs")
-        bpclient.logger.info(f"Buttplug Devices: {bpclient.devices}")
+        print("    ...done scanning for buttplugs")
+        for i in range(len(bpclient.devices)):
+          print(f"  {i}: {bpclient.devices[int(i)].name}")
         continue
       elif user_input in {"bl", "list buttplugs"}:
-        #TODO get access to bpclient.devices
-        for i, dev in enumerate(bpclient.devices):
-          print(f"  {i}: {dev.name}")
+        for i in range(len(bpclient.devices)):
+          print(f"  {i}: {bpclient.devices[int(i)].name}")
         continue
       elif user_input in {"bv", "vibrate buttplugs"}:
         bid = await aioconsole.ainput("  buttplug index> ")
         if (bid in {"q", "quit", "c", "cancel"}):
           print("  cancelled vibrate buttplug")
           continue
-        if (bid >= len(cpath_to_bpdevice)):
+        if (int(bid) > len(bpclient.devices)):
           print("  invalid index")
           continue
-        # TODO get access to bpclient
-        #await bpclient.devices[bid].rotatory_actuators[0].command(0.5, True)
-        #await asyncio.sleep(1)
-        #await bpclient.devices[bid].rotatory_actuators[0].command(0, True)
-        break
+        device = bpclient.devices[int(bid)];
+        print(f"  vibraing {device.name}")
+        await device.actuators[0].command(0.5)
+        await asyncio.sleep(.5)
+        await device.actuators[0].command(0)
+        continue
+
       elif user_input in {"cl", "list controllers"}:
         for i, dev in enumerate(cpath_to_shim.values()):
-          print(f"  {i}: {dev}")
+          print(f"  {i}: {dev.device_file.path}")
         continue
       elif user_input in {"cv", "vibrate controller"}:
         print("  not implemented yet")
@@ -203,9 +218,11 @@ if __name__ == "__main__":
         #if (cid in {"q", "quit", "c", "cancel"}):
         #  print("  cancelled vibrate controller")
         #  continue
-        #if (cid >= len(cpath_to_shim)):
+        #if (cid > len(cpath_to_shim)):
         #  print("  invalid index")
         #  continue
+      else:
+        continue
     await bpclient.disconnect()
 
   futures = [ console_input(), controller_manager() ] #, bpmanager() ]

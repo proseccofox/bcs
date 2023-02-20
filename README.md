@@ -1,15 +1,12 @@
-# BuzzyTux
+# Buttplug Controller Shim (BCS)
 
-A linux -> lib buttplug shim which sends gamepad controller events
+A linux -> lib buttplug shim which sends gamepad rumble events (force feedback)
 to your favorite sex toys!
 
 # Deps 
 - [python evdev](https://python-evdev.readthedocs.io/en/latest/tutorial.html)
 - [buttplugpy](https://github.com/Siege-Wizard/buttplug-py)
-
-# More notes
-https://github.com/buttplugio/awesome-buttplug
-
+- maybe [xpadneo]()
 
 # Getting Started
 Install xpadneo driver (required to read force feedback via xev.)
