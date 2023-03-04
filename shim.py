@@ -50,10 +50,10 @@ class gamepad_bp_shim():
           print("No buttplug device connected, skipping rumble")
         else:
           print(f"  vibraing {self.bpdevice.name}")
-          await self.bpdevice.actuators[0].command(0.2)
-          await asyncio.sleep(.2)
+          await self.bpdevice.actuators[0].command(0.05)
+          await asyncio.sleep(.1)
           await self.bpdevice.actuators[0].command(0)
-        self.rumble_effect -= 1
+        self.rumble_effect -= 2
       else:
         await asyncio.sleep(.2)
 
@@ -168,13 +168,15 @@ controller helper commands:
           print("  cancelled pairing")
           continue
         path = f"/dev/input/event{cid}"
-        if cpath_to_shim[path] == None:
+        print(f"  checking cl path {path}...")
+        if (cpath_to_shim[path] == None):
           print("  invalid controller event number")
           continue
+        print(f"  checkint bp index {bid}...")
         if (int(bid) > len(bpclient.devices)):
           print("  invalid buttplug index")
           continue
-        print(f"  connecting controller {path} to buttplug {bid} - {bpclient.devices[int(bid)].name}")
+        print(f"  connecting controller {path} to buttplug {bid} - {bpclient.devices[int(bid)].name}...")
         cpath_to_shim[path].bpdevice = bpclient.devices[int(bid)]
         # TODO vibrate controller and buttplug to indicate success
 

@@ -6,7 +6,7 @@ to your favorite sex toys!
 # Deps 
 - [python evdev](https://python-evdev.readthedocs.io/en/latest/tutorial.html)
 - [buttplugpy](https://github.com/Siege-Wizard/buttplug-py)
-- maybe [xpadneo]()
+- [xpadneo](https://github.com/atar-axis/xpadneo)
 
 # Getting Started
 Install xpadneo driver (required to read force feedback via xev.)
