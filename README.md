@@ -10,7 +10,6 @@ Here's a [demo](https://www.youtube.com/watch?v=gPlhEoa3Fcg) taken from qdot's w
 - When a controller vibrates so do you.
 - Pair multiple buttplugs to a controller.
 - Pair multiple controllers to a buttplug.
-- Xbox controllers are automatically discovered
 
 ## Deps
 
@@ -20,10 +19,10 @@ Here's a [demo](https://www.youtube.com/watch?v=gPlhEoa3Fcg) taken from qdot's w
 
 ## Getting Started
 
-Install xpadneo driver which required for force feedback on Xbox controllers.
+Install xpadneo driver which is required for Xbox controllers.
 Note this may require rebooting after installation which is not in their
 installation instructions.
-Tested on driver version v0.9.5, with Xbox one controller BLE firmware 5.13.
+Tested on xpadneo version v0.9.5, with Xbox one controller BLE firmware 5.13.
 
 Install dependencies:
 
@@ -40,7 +39,7 @@ Workflow is as follows:
   python3 console.py
   ```
 
-1. Connect your controller to the pc, bcs should automatically find it.
+1. Connect your controller to the pc, BCS should automatically find it.
 1. Scan for buttplugs with the `bs` command
 1. Pair the controller to the buttplug with the `p` command.
   Here you type the controller evdev number (e.g. 262), then the buttplug index.

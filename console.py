@@ -3,7 +3,11 @@
 """
 Console app for BCS
 """
-from shim import *
+import asyncio
+import aioconsole
+import logging
+import sys
+from shim import buttplug_manager, controller_manager
 
 def printhelp():
   print("""Buttplug Controller Shim BCS v0.1
@@ -45,15 +49,15 @@ async def console_app():
         print("  cancelled pairing")
         continue
       path = f"/dev/input/event{cid}"
-      if (cm.cpath_to_shim[path] == None):
+      if path not in cm.cpath_to_shim:
         print("  invalid controller event id")
         continue
-      if (int(bid) > len(bm.bpclient.devices)):
+      if (int(bid) >= len(bm.bpclient.devices)):
         print("  invalid buttplug index")
         continue
       print(f"  connecting controller {path} to buttplug {bid} - {bm.bpclient.devices[int(bid)].name}...")
-      cm.cpath_to_shim[path].bpdevice = bm.bpclient.devices[int(bid)]
-      await cm.cpath_to_shim[path].rumble_gamepad()
+      cm.cpath_to_shim[path].pair_to_buttplug(bm.bpclient.devices[int(bid)])
+      cm.cpath_to_shim[path].rumble_gamepad()
 
     elif user_input in {"s", "bs", "scan"}:
       await bm.scan()
@@ -65,12 +69,12 @@ async def console_app():
       if (bid in {"q", "quit", "c", "cancel"}):
         print("  cancelled vibrate buttplug")
         continue
-      if (int(bid) > len(bm.bpclient.devices)):
+      if (int(bid) >= len(bm.bpclient.devices)):
         print("  invalid index")
         continue
       device = bm.bpclient.devices[int(bid)];
       print(f"  vibrating {device.name}")
-      await device.actuators[0].command(0.5)
+      await device.actuators[0].command(0.1)
       await asyncio.sleep(.5)
       await device.actuators[0].command(0)
 
@@ -83,10 +87,11 @@ async def console_app():
         print("  cancelled vibrate controller")
         continue
       path = f"/dev/input/event{cid}"
-      if (cm.cpath_to_shim[path] == None):
+      if path not in cm.cpath_to_shim:
         print("  invalid controller event id")
+        continue
       print(f"  vibrating {path}")
-      await cm.cpath_to_shim[path].rumble_gamepad()
+      cm.cpath_to_shim[path].rumble_gamepad()
     elif user_input == "":
       continue
     else:

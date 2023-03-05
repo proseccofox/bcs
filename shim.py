@@ -3,39 +3,42 @@
 """
 Look for gamepad force feedback events and send them to the BP
 """
-import sys
 import logging
 import asyncio
-import aioconsole
 from evdev import InputDevice, ff, ecodes, list_devices
 from buttplug import Client, WebsocketConnector, ProtocolSpec
 
 class gamepad_bp_shim():
   def __init__(self, file = '/dev/input/event0'):
-    self.power_on = True
     self.device_file = InputDevice(file)
     print("opened device file", self.device_file.path)
-    self.bpdevice = None
-    self.rumble_effect = 0
+    self.bpdevices = []
+    self.bp_semaphores = []
+    self.snoop_task = None
+    self.ff_forwarder_tasks = []
     self.ignored_events = 0
+    self.test_rumble_effect_id = 0
+    self.buttplug_strength = 0.05
+
+  def setup(self):
+    assert self.snoop_task is None
+    self.snoop_task = asyncio.create_task(self.read_gamepad_input())
 
     # setup test rumble effect
     rumble = ff.Rumble(strong_magnitude=0xc000, weak_magnitude=0x0000)
     duration_ms = 200
     effect = ff.Effect(ecodes.FF_RUMBLE, -1, 0, ff.Trigger(0, 0), ff.Replay(duration_ms, 0), ff.EffectType(ff_rumble_effect=rumble))
-    self.test_effect_id = self.device_file.upload_effect(effect)
+    self.test_rumble_effect_id = self.device_file.upload_effect(effect)
 
   async def read_gamepad_input(self):
     print("reading gamepad input")
     async for event in self.device_file.async_read_loop():
-      if not(self.power_on): #stop reading device when power_on = false
-        break
-
       if event.type == ecodes.EV_FF:
-        print("Got FF event!")
-        print(event)
+        #print("Got FF event!")
+        #print(event)
         #dump(event)
-        self.rumble_effect += 1
+        for s in self.bp_semaphores:
+          s.release()
       elif event.type == ecodes.EV_FF_STATUS:
         print("FF status event")
       elif event.type in {ecodes.EV_KEY, ecodes.EV_MSC, ecodes.EV_ABS, ecodes.EV_SYN}:
@@ -49,34 +52,43 @@ class gamepad_bp_shim():
         #EV_MSC 4 buttons?
         #EV_SW  5
 
-  async def rumble_gamepad(self):
+  def rumble_gamepad(self):
     repeat_count = 1
-    self.device_file.write(ecodes.EV_FF, self.test_effect_id, repeat_count)
-    self.rumble_effect = 10
+    self.device_file.write(ecodes.EV_FF, self.test_rumble_effect_id, repeat_count)
+    for s in self.bp_semaphores:
+      for i in range(5):
+        s.release()
 
-  async def rumble_buttplug(self): # asyncronus control of force feedback effects
-    while self.power_on:
-      if self.rumble_effect > 0:
-        if (self.bpdevice == None):
-          print("No buttplug device connected, skipping rumble")
-        else:
-          print(f"  vibrating {self.bpdevice.name}")
-          await self.bpdevice.actuators[0].command(0.05)
-          await asyncio.sleep(.1)
-          await self.bpdevice.actuators[0].command(0)
-        self.rumble_effect -= 2
-      else:
-        await asyncio.sleep(.2)
+  def pair_to_buttplug(self, bpdevice):
+    if bpdevice in self.bpdevices:
+      print("buttplug already paired to this controller")
+      return
+    bpindex = len(self.bpdevices)
+    self.bpdevices.append(bpdevice)
+    self.bp_semaphores.append(asyncio.Semaphore(0))
+    self.ff_forwarder_tasks.append(asyncio.create_task(self.forward_ff(bpindex)))
+
+  async def forward_ff(self, bpindex):
+    print(f"started ff forwarder task for index {bpindex}")
+    while True:
+      await self.bp_semaphores[bpindex].acquire()
+      print(f"  vibrating {self.bpdevices[bpindex].name}")
+      await self.bpdevices[bpindex].actuators[0].command(self.buttplug_strength)
+      await asyncio.sleep(.1)
+      await self.bpdevices[bpindex].actuators[0].command(0)
+
+  def shutdown(self):
+    for task in self.ff_forwarder_tasks:
+      task.cancel()
+    self.snoop_task.cancel()
+
 
 class controller_manager():
   def __init__(self):
-    self.power_on = True
-    self.cpath_to_read_input = {}
-    self.cpath_to_send_output = {}
     self.cpath_to_shim = {}
 
   async def run(self):
-    while self.power_on:
+    while True:
       all_devices = [InputDevice(path) for path in list_devices()]
       ff_devices = [dev for dev in all_devices if ecodes.EV_FF in dev.capabilities()]
       new_connected_devs = [dev for dev in ff_devices if dev.path not in self.cpath_to_shim.keys()]
@@ -85,28 +97,21 @@ class controller_manager():
       for dev in new_connected_devs:
         print("new controller connected:", dev)
         self.cpath_to_shim[dev.path] = gamepad_bp_shim(file = dev)
-        self.cpath_to_read_input[dev.path] = asyncio.get_event_loop().create_task(self.cpath_to_shim[dev.path].read_gamepad_input())
-        self.cpath_to_send_output[dev.path] = asyncio.get_event_loop().create_task(self.cpath_to_shim[dev.path].rumble_buttplug())
+        self.cpath_to_shim[dev.path].setup()
 
       for path in new_disconnected_paths:
         print("controller disconnected:", path)
-        self.cpath_to_shim[path].power_on = False
-        self.cpath_to_read_input.pop(path).cancel()
-        self.cpath_to_send_output.pop(path).cancel()
+        self.cpath_to_shim[path].shutdown()
         self.cpath_to_shim.pop(path)
 
-      await asyncio.sleep(5) # loop for new controllers every 5 seconds
+      await asyncio.sleep(5) # check for new controllers every 5 seconds
 
   async def shutdown(self):
-    print("stopping controllers (may need to wake each controller)")
-    self.power_on = False
-    for s in self.cpath_to_shim.values():
-      s.power_on = False
-    for t in self.cpath_to_read_input.values():
-      t.cancel()
-    for t in self.cpath_to_send_output.values():
-      t.cancel()
+    print("stopping controllers")
+    for shim in self.cpath_to_shim.values():
+      shim.shutdown()
     #print("sum of ignored events:", sum(dev.ignored_events for dev in self.cpath_to_shim.values()))
+
 
 class buttplug_manager():
   def __init__(self):
