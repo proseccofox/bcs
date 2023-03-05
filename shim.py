@@ -19,7 +19,13 @@ class gamepad_bp_shim():
     self.rumble_effect = 0
     self.ignored_events = 0
 
-  async def read_gamepad_input(self): # asyncronus read-out of events
+    # setup test rumble effect
+    rumble = ff.Rumble(strong_magnitude=0xc000, weak_magnitude=0x0000)
+    duration_ms = 200
+    effect = ff.Effect(ecodes.FF_RUMBLE, -1, 0, ff.Trigger(0, 0), ff.Replay(duration_ms, 0), ff.EffectType(ff_rumble_effect=rumble))
+    self.test_effect_id = self.device_file.upload_effect(effect)
+
+  async def read_gamepad_input(self):
     print("reading gamepad input")
     async for event in self.device_file.async_read_loop():
       if not(self.power_on): #stop reading device when power_on = false
@@ -43,13 +49,18 @@ class gamepad_bp_shim():
         #EV_MSC 4 buttons?
         #EV_SW  5
 
-  async def send_rumbles(self): # asyncronus control of force feedback effects
+  async def rumble_gamepad(self):
+    repeat_count = 1
+    self.device_file.write(ecodes.EV_FF, self.test_effect_id, repeat_count)
+    self.rumble_effect = 10
+
+  async def rumble_buttplug(self): # asyncronus control of force feedback effects
     while self.power_on:
       if self.rumble_effect > 0:
         if (self.bpdevice == None):
           print("No buttplug device connected, skipping rumble")
         else:
-          print(f"  vibraing {self.bpdevice.name}")
+          print(f"  vibrating {self.bpdevice.name}")
           await self.bpdevice.actuators[0].command(0.05)
           await asyncio.sleep(.1)
           await self.bpdevice.actuators[0].command(0)
@@ -60,16 +71,13 @@ class gamepad_bp_shim():
 if __name__ == "__main__":
   logging.basicConfig(stream=sys.stdout, level=logging.INFO)
   main_power_on = True
-  #bp_scan = False
   cpath_to_shim = {}
-  cpath_to_bpdevice = {}
 
   async def controller_manager():
     global main_power_on
     cpath_to_read_input = {}
     cpath_to_send_output = {}
     while main_power_on:
-      #print("controller manager loop")
       all_devices = [InputDevice(path) for path in list_devices()]
       ff_devices = [dev for dev in all_devices if ecodes.EV_FF in dev.capabilities()]
       new_connected_devs = [dev for dev in ff_devices if dev.path not in cpath_to_shim.keys()]
@@ -79,7 +87,7 @@ if __name__ == "__main__":
         print("new controller connected:", dev)
         cpath_to_shim[dev.path] = gamepad_bp_shim(file = dev)
         cpath_to_read_input[dev.path] = asyncio.get_event_loop().create_task(cpath_to_shim[dev.path].read_gamepad_input())
-        cpath_to_send_output[dev.path] = asyncio.get_event_loop().create_task(cpath_to_shim[dev.path].send_rumbles())
+        cpath_to_send_output[dev.path] = asyncio.get_event_loop().create_task(cpath_to_shim[dev.path].rumble_buttplug())
 
       for path in new_disconnected_paths:
         print("controller disconnected:", path)
@@ -97,13 +105,13 @@ if __name__ == "__main__":
       t.cancel()
     for t in cpath_to_send_output.values():
       t.cancel()
-    print("sum of ignored events:", sum(dev.ignored_events for dev in cpath_to_shim.values()))
+    #print("sum of ignored events:", sum(dev.ignored_events for dev in cpath_to_shim.values()))
 
   #async def bpmanager():
   #  global main_power_on
   #  global bp_scan
 
-  #  bpclient = Client("BPS Client", ProtocolSpec.v3)
+  #  bpclient = Client("BCS Client", ProtocolSpec.v3)
   #  bpconnector = WebsocketConnector("ws://127.0.0.1:12345", logger=bpclient.logger)
   #  try:
   #    await bpclient.connect(bpconnector)
@@ -121,16 +129,13 @@ if __name__ == "__main__":
   #      await bpclient.stop_scanning()
   #      print("...done scanning for buttplugs")
   #      bpclient.logger.info(f"Buttplug Devices: {bpclient.devices}")
-
   #    await asyncio.sleep(5)
-
   #  await bpclient.disconnect()
 
   async def console_input():
     global main_power_on
-    #global bp_scan
 
-    bpclient = Client("BPS Client", ProtocolSpec.v3)
+    bpclient = Client("BCS Client", ProtocolSpec.v3)
     bpconnector = WebsocketConnector("ws://127.0.0.1:12345", logger=bpclient.logger)
     try:
       await bpclient.connect(bpconnector)
@@ -142,7 +147,7 @@ if __name__ == "__main__":
     print("h for help, q to quit")
 
     while main_power_on:
-      user_input = await aioconsole.ainput("BPS> ")
+      user_input = await aioconsole.ainput("BCS> ")
       if user_input == "q" or user_input == "quit":
         print("shitting down")
         main_power_on = False
@@ -159,7 +164,7 @@ controller helper commands:
 (cl)ist controllers, (cv)ibrate controller
 """)
       elif user_input == "p" or user_input == "pair":
-        cid = await aioconsole.ainput("  controller event number> ")
+        cid = await aioconsole.ainput("  controller event id> ")
         if (cid in {"q", "quit", "c", "cancel"}):
           print("  cancelled pairing")
           continue
@@ -168,20 +173,18 @@ controller helper commands:
           print("  cancelled pairing")
           continue
         path = f"/dev/input/event{cid}"
-        print(f"  checking cl path {path}...")
         if (cpath_to_shim[path] == None):
-          print("  invalid controller event number")
+          print("  invalid controller event id")
           continue
-        print(f"  checkint bp index {bid}...")
         if (int(bid) > len(bpclient.devices)):
           print("  invalid buttplug index")
           continue
         print(f"  connecting controller {path} to buttplug {bid} - {bpclient.devices[int(bid)].name}...")
         cpath_to_shim[path].bpdevice = bpclient.devices[int(bid)]
+        await cpath_to_shim[path].rumble_gamepad()
         # TODO vibrate controller and buttplug to indicate success
 
       elif user_input in {"s", "bs", "scan"}:
-        #bp_scan = True
         print("  scanning for new buttplugs...")
         await bpclient.start_scanning()
         await asyncio.sleep(10)
@@ -203,7 +206,7 @@ controller helper commands:
           print("  invalid index")
           continue
         device = bpclient.devices[int(bid)];
-        print(f"  vibraing {device.name}")
+        print(f"  vibrating {device.name}")
         await device.actuators[0].command(0.5)
         await asyncio.sleep(.5)
         await device.actuators[0].command(0)
@@ -211,18 +214,18 @@ controller helper commands:
 
       elif user_input in {"cl", "list controllers"}:
         for i, dev in enumerate(cpath_to_shim.values()):
-          print(f"  {i}: {dev.device_file.path}")
+          print(f"  {dev.device_file.path}")
         continue
       elif user_input in {"cv", "vibrate controller"}:
-        print("  not implemented yet")
-        continue
-        #cid = await aioconsole.ainput("  controller index> ")
-        #if (cid in {"q", "quit", "c", "cancel"}):
-        #  print("  cancelled vibrate controller")
-        #  continue
-        #if (cid > len(cpath_to_shim)):
-        #  print("  invalid index")
-        #  continue
+        cid = await aioconsole.ainput("  controller event id> ")
+        if (cid in {"q", "quit", "c", "cancel"}):
+          print("  cancelled vibrate controller")
+          continue
+        path = f"/dev/input/event{cid}"
+        if (cpath_to_shim[path] == None):
+          print("  invalid controller event id")
+        print(f"  vibrating {path}")
+        await cpath_to_shim[path].rumble_gamepad()
       else:
         continue
     await bpclient.disconnect()
