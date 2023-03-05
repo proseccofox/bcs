@@ -18,7 +18,7 @@ class gamepad_bp_shim():
     self.ff_forwarder_tasks = []
     self.ignored_events = 0
     self.test_rumble_effect_id = 0
-    self.buttplug_strength = 0.05
+    self.vibration_strength = 0.05
 
   def setup(self):
     assert self.snoop_task is None
@@ -73,7 +73,7 @@ class gamepad_bp_shim():
     while True:
       await self.bp_semaphores[bpindex].acquire()
       print(f"  vibrating {self.bpdevices[bpindex].name}")
-      await self.bpdevices[bpindex].actuators[0].command(self.buttplug_strength)
+      await self.bpdevices[bpindex].actuators[0].command(self.vibration_strength)
       await asyncio.sleep(.1)
       await self.bpdevices[bpindex].actuators[0].command(0)
 

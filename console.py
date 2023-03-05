@@ -14,11 +14,15 @@ def printhelp():
 
 (h)elp, (q)uit, (p)air controller to buttplug
 
-buttplug helper commands:
-(bs)can for buttplugs, (bl)ist buttplugs, (bv)ibrate buttplug
+controller commands:
+  cl - list controllers
+  cv - vibrate a controller
 
-controller helper commands:
-(cl)ist controllers, (cv)ibrate controller
+buttplug commands:
+  bs - scan for buttplugs
+  bl - list all buttplugs
+  bv - vibrate a buttplug
+  vs - set a controller's vibration strength
 """)
 
 async def console_app():
@@ -59,6 +63,21 @@ async def console_app():
       cm.cpath_to_shim[path].pair_to_buttplug(bm.bpclient.devices[int(bid)])
       cm.cpath_to_shim[path].rumble_gamepad()
 
+    elif user_input in {"cl", "list controllers"}:
+      for i, dev in enumerate(cm.cpath_to_shim.values()):
+        print(f"  {dev.device_file.path}")
+    elif user_input in {"cv", "vibrate controller"}:
+      cid = await aioconsole.ainput("  controller event id> ")
+      if (cid in {"q", "quit", "c", "cancel"}):
+        print("  cancelled vibrate controller")
+        continue
+      path = f"/dev/input/event{cid}"
+      if path not in cm.cpath_to_shim:
+        print("  invalid controller event id")
+        continue
+      print(f"  vibrating {path}")
+      cm.cpath_to_shim[path].rumble_gamepad()
+
     elif user_input in {"s", "bs", "scan"}:
       await bm.scan()
     elif user_input in {"bl", "list buttplugs"}:
@@ -78,10 +97,7 @@ async def console_app():
       await asyncio.sleep(.5)
       await device.actuators[0].command(0)
 
-    elif user_input in {"cl", "list controllers"}:
-      for i, dev in enumerate(cm.cpath_to_shim.values()):
-        print(f"  {dev.device_file.path}")
-    elif user_input in {"cv", "vibrate controller"}:
+    elif user_input in {"vs"}:
       cid = await aioconsole.ainput("  controller event id> ")
       if (cid in {"q", "quit", "c", "cancel"}):
         print("  cancelled vibrate controller")
@@ -90,8 +106,11 @@ async def console_app():
       if path not in cm.cpath_to_shim:
         print("  invalid controller event id")
         continue
-      print(f"  vibrating {path}")
+      cm.cpath_to_shim[path].vibration_strength = float(await aioconsole.ainput("  strength (0 to 1)> "))
+      print(f"  set {path}'s buttplug vibration strength to {cm.cpath_to_shim[path].vibration_strength}")
       cm.cpath_to_shim[path].rumble_gamepad()
+
+
     elif user_input == "":
       continue
     else:
